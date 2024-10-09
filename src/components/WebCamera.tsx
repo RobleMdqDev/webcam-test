@@ -16,7 +16,9 @@ export default function WebCamera() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [endpoint, setEndpoint] = useState<string | null>("");
+  const [endpoint, setEndpoint] = useState<string | null>(
+    "http://localhost:5000/test"
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
@@ -83,7 +85,9 @@ export default function WebCamera() {
         <CardTitle>Captura de Cámara Web</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <label htmlFor="endpointInput">Ingresar endpoint</label>
         <Input
+          id="endpointInput"
           type="text"
           value={endpoint || ""}
           onChange={(e) => setEndpoint(e.target.value)}
