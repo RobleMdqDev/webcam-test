@@ -23,6 +23,7 @@ import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {RadioGroup, RadioGroupItem} from "@/components/ui/radio-group";
 import {Textarea} from "@/components/ui/textarea";
 import {X, Upload, Camera} from "lucide-react";
+import {ThemeToggle} from "./ThemeToggle";
 
 export default function WebcamCapture() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -373,6 +374,9 @@ export default function WebcamCapture() {
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full max-w-7xl mx-auto p-4">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <Card className="flex-1">
         <CardHeader>
           <CardTitle>Captura y Edición de Imagen</CardTitle>
