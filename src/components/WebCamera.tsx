@@ -22,13 +22,13 @@ import {Slider} from "@/components/ui/slider";
 import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {RadioGroup, RadioGroupItem} from "@/components/ui/radio-group";
 import {Textarea} from "@/components/ui/textarea";
-import {X, Upload} from "lucide-react";
-import {ThemeToggle} from "@/components/ThemeToggle";
+import {X, Upload, Camera} from "lucide-react";
 
 export default function WebcamCapture() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
@@ -45,6 +45,13 @@ export default function WebcamCapture() {
   const [imageSize, setImageSize] = useState<number | null>(null);
   const [sendMethod, setSendMethod] = useState("base64");
   const [imageKeyName, setImageKeyName] = useState("image");
+  const [activeTab, setActiveTab] = useState("webcam");
+  const [isDragging, setIsDragging] = useState(false);
+  const [originalDimensions, setOriginalDimensions] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [showTransformOption, setShowTransformOption] = useState(false);
 
   useEffect(() => {
     const startCamera = async () => {
@@ -64,14 +71,65 @@ export default function WebcamCapture() {
       }
     };
 
-    startCamera();
+    if (activeTab === "webcam") {
+      startCamera();
+    } else {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    }
 
     return () => {
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [imageWidth, imageHeight]);
+  }, [imageWidth, imageHeight, activeTab]);
+
+  useEffect(() => {
+    const dropZone = dropZoneRef.current;
+    if (!dropZone) return;
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(true);
+    };
+
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      if (e.dataTransfer?.files && e.dataTransfer.files[0]) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    };
+
+    dropZone.addEventListener("dragover", handleDragOver);
+    dropZone.addEventListener("dragenter", handleDragEnter);
+    dropZone.addEventListener("dragleave", handleDragLeave);
+    dropZone.addEventListener("drop", handleDrop);
+
+    return () => {
+      dropZone.removeEventListener("dragover", handleDragOver);
+      dropZone.removeEventListener("dragenter", handleDragEnter);
+      dropZone.removeEventListener("dragleave", handleDragLeave);
+      dropZone.removeEventListener("drop", handleDrop);
+    };
+  }, []);
 
   const captureImage = () => {
     if (videoRef.current && canvasRef.current) {
@@ -90,9 +148,14 @@ export default function WebcamCapture() {
           imageFormat,
           imageQuality
         );
+        setOriginalDimensions({
+          width: canvasRef.current.width,
+          height: canvasRef.current.height,
+        });
         setCapturedImage(imageDataUrl);
         setUploadedImage(null);
         updateImageSize(imageDataUrl);
+        checkImageDimensions(canvasRef.current.width, canvasRef.current.height);
       }
     }
   };
@@ -101,23 +164,40 @@ export default function WebcamCapture() {
     setCapturedImage(null);
     setUploadedImage(null);
     setImageSize(null);
+    setOriginalDimensions(null);
+    setShowTransformOption(false);
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFile = (file: File) => {
     if (file && file.type.startsWith("image/")) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const result = e.target?.result;
         if (typeof result === "string") {
-          setUploadedImage(result);
-          setCapturedImage(null);
-          updateImageSize(result);
+          const img = new Image();
+          img.onload = () => {
+            setOriginalDimensions({
+              width: img.width,
+              height: img.height,
+            });
+            setUploadedImage(result);
+            setCapturedImage(null);
+            updateImageSize(result);
+            checkImageDimensions(img.width, img.height);
+          };
+          img.src = result;
         }
       };
       reader.readAsDataURL(file);
     } else {
       alert("Por favor, seleccione un archivo de imagen válido.");
+    }
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      handleFile(file);
     }
   };
 
@@ -131,11 +211,59 @@ export default function WebcamCapture() {
     setImageSize(bytes.length);
   };
 
+  const checkImageDimensions = (width: number, height: number) => {
+    if (width !== imageWidth || height !== imageHeight) {
+      setShowTransformOption(true);
+    } else {
+      setShowTransformOption(false);
+    }
+  };
+
+  const transformImage = () => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = imageWidth;
+      canvas.height = imageHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, imageWidth, imageHeight);
+        const transformedImageDataUrl = canvas.toDataURL(
+          imageFormat,
+          imageQuality
+        );
+        if (capturedImage) {
+          setCapturedImage(transformedImageDataUrl);
+        } else if (uploadedImage) {
+          setUploadedImage(transformedImageDataUrl);
+        }
+        updateImageSize(transformedImageDataUrl);
+        setShowTransformOption(false);
+      }
+    };
+    img.src = capturedImage || uploadedImage || "";
+  };
+
+  const downloadImage = () => {
+    const imageData = capturedImage || uploadedImage;
+    if (imageData) {
+      const link = document.createElement("a");
+      link.href = imageData;
+      link.download = `image.${imageFormat.split("/")[1]}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
   const getRequestBody = () => {
     const imageData = capturedImage || uploadedImage;
 
+    if (!imageData) {
+      return {message: "No image data available"};
+    }
+
     if (sendMethod === "base64") {
-      // Si el método es base64, devolvemos el objeto como JSON
       return {
         [imageKeyName]: imageData,
         width: imageWidth,
@@ -144,96 +272,69 @@ export default function WebcamCapture() {
         quality: imageQuality,
       };
     } else if (sendMethod === "blob") {
-      const formData = new FormData();
+      // For preview purposes, we'll just return a placeholder for FormData
+      return {
+        message: "FormData will be created when sending",
+        imageKey: imageKeyName,
+        width: imageWidth,
+        height: imageHeight,
+        format: imageFormat,
+        quality: imageQuality,
+      };
+    }
 
-      if (imageData) {
-        let imageBlob: Blob;
+    return {message: "Invalid send method"};
+  };
 
-        // Si la imagen está en base64, la convertimos a Blob
-        if (imageData.startsWith("data:")) {
-          const base64Data = imageData.split(",")[1]; // Quitamos el encabezado de data URL
-          const contentType = imageFormat; // "image/png", "image/jpeg", etc.
-          const byteCharacters = atob(base64Data);
-          const byteNumbers = new Array(byteCharacters.length);
+  const sendImage = async () => {
+    const imageData = capturedImage || uploadedImage;
+    if (!imageData) {
+      setResult("No image data available to send.");
+      return;
+    }
 
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-
-          const byteArray = new Uint8Array(byteNumbers);
-          imageBlob = new Blob([byteArray], {type: contentType});
-        } else {
-          // Si ya es un archivo/Blob, lo usamos directamente
-          imageBlob = new Blob([imageData], {type: imageFormat});
-        }
-
-        // Añadimos el Blob al FormData
+    setIsLoading(true);
+    try {
+      let body;
+      if (sendMethod === "base64") {
+        body = JSON.stringify(getRequestBody());
+      } else if (sendMethod === "blob") {
+        const response = await fetch(imageData);
+        const blob = await response.blob();
+        const formData = new FormData();
         formData.append(
           imageKeyName,
-          imageBlob,
+          blob,
           "image." + imageFormat.split("/")[1]
         );
         formData.append("width", imageWidth.toString());
         formData.append("height", imageHeight.toString());
         formData.append("format", imageFormat);
         formData.append("quality", imageQuality.toString());
-      } else {
-        // Si imageData es null, devolver un FormData vacío o manejar el error
-        throw new Error("No image data available to send.");
+        body = formData;
       }
 
-      return formData;
-    }
+      const response = await fetch(endpointUrl, {
+        method: "POST",
+        headers:
+          sendMethod === "base64"
+            ? {
+                "Content-Type": "application/json",
+              }
+            : undefined,
+        body: body,
+      });
 
-    return {};
-  };
-
-  const sendImage = async () => {
-    const imageData = capturedImage || uploadedImage;
-    if (imageData) {
-      setIsLoading(true);
-      try {
-        let body;
-        if (sendMethod === "base64") {
-          body = JSON.stringify(getRequestBody());
-        } else if (sendMethod === "blob") {
-          const response = await fetch(imageData);
-          const blob = await response.blob();
-          const formData = new FormData();
-          formData.append(
-            imageKeyName,
-            blob,
-            "image." + imageFormat.split("/")[1]
-          );
-          formData.append("width", imageWidth.toString());
-          formData.append("height", imageHeight.toString());
-          formData.append("format", imageFormat);
-          formData.append("quality", imageQuality.toString());
-          body = formData;
-        }
-
-        const response = await fetch(endpointUrl, {
-          method: "POST",
-          headers:
-            sendMethod === "base64"
-              ? {
-                  "Content-Type": "application/json",
-                }
-              : undefined,
-          body: body,
-        });
-
-        const data = await response.json();
-        setResult(data.message || "Comparación completada");
-      } catch (error) {
-        console.error("Error sending image:", error);
-        setResult(
-          "Error al enviar la imagen: " +
-            (error instanceof Error ? error.message : String(error))
-        );
-      } finally {
-        setIsLoading(false);
-      }
+      const data = await response.json();
+      setResult(data.message || "Comparación completada");
+    } catch (error) {
+      console.error("Error sending image:", error);
+      setResult(
+        "Error al enviar la imagen: " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -243,6 +344,9 @@ export default function WebcamCapture() {
       const [width, height] = aspectRatio.split(":").map(Number);
       setImageHeight(Math.round((newWidth * height) / width));
     }
+    if (originalDimensions) {
+      checkImageDimensions(originalDimensions.width, originalDimensions.height);
+    }
   };
 
   const handleHeightChange = (newHeight: number) => {
@@ -250,6 +354,9 @@ export default function WebcamCapture() {
     if (aspectRatio !== "free") {
       const [width, height] = aspectRatio.split(":").map(Number);
       setImageWidth(Math.round((newHeight * width) / height));
+    }
+    if (originalDimensions) {
+      checkImageDimensions(originalDimensions.width, originalDimensions.height);
     }
   };
 
@@ -259,70 +366,121 @@ export default function WebcamCapture() {
       const [width, height] = newRatio.split(":").map(Number);
       setImageHeight(Math.round((imageWidth * height) / width));
     }
+    if (originalDimensions) {
+      checkImageDimensions(originalDimensions.width, originalDimensions.height);
+    }
   };
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 w-full max-w-7xl mx-auto p-4">
-      <div className="absolute top-4 right-4">
-        <ThemeToggle />
-      </div>
       <Card className="flex-1">
         <CardHeader>
           <CardTitle>Captura y Edición de Imagen</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="relative">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-auto object-cover rounded-md"
-            />
-            {(capturedImage || uploadedImage) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
-                <img
-                  src={capturedImage || uploadedImage || ""}
-                  alt="Captured or Uploaded"
-                  className="max-w-full max-h-full object-contain"
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="webcam">
+                <Camera className="mr-2 h-4 w-4" />
+                Webcam
+              </TabsTrigger>
+              <TabsTrigger value="upload">
+                <Upload className="mr-2 h-4 w-4" />
+                Subir Imagen
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="webcam">
+              <div className="relative">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-auto object-cover rounded-md"
                 />
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="absolute top-2 right-2"
-                  onClick={closeCapture}
-                >
-                  <X className="h-4 w-4" />
-                  <span className="sr-only">Cerrar captura</span>
-                </Button>
+                {capturedImage && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+                    <img
+                      src={capturedImage}
+                      alt="Captured"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="absolute top-2 right-2"
+                      onClick={closeCapture}
+                    >
+                      <X className="h-4 w-4" />
+                      <span className="sr-only">Cerrar captura</span>
+                    </Button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <canvas ref={canvasRef} className="hidden" />
-          <div className="mt-4 flex justify-between">
-            <Button onClick={captureImage}>Capturar Imagen</Button>
-            <div>
+              <canvas ref={canvasRef} className="hidden" />
+              <div className="mt-4">
+                <Button onClick={captureImage}>Capturar Imagen</Button>
+              </div>
+            </TabsContent>
+            <TabsContent value="upload">
+              <div
+                ref={dropZoneRef}
+                className={`relative border-2 border-dashed rounded-md p-12 text-center transition-colors ${
+                  isDragging
+                    ? "border-primary bg-primary/10"
+                    : "border-gray-300 hover:border-primary"
+                }`}
+              >
+                {uploadedImage ? (
+                  <div className="relative">
+                    <img
+                      src={uploadedImage}
+                      alt="Uploaded"
+                      className="w-full h-auto object-cover rounded-md"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="absolute top-2 right-2"
+                      onClick={closeCapture}
+                    >
+                      <X className="h-4 w-4" />
+                      <span className="sr-only">Cerrar imagen</span>
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="mx-auto h-12 w-12 text-gray-400" />
+                    <p className="mt-2 text-sm text-gray-600">
+                      Haga clic para subir o arrastre y suelte
+                    </p>
+                  </>
+                )}
+              </div>
               <input
-                title="FileImage"
+                title="file input"
                 type="file"
                 accept="image/*"
                 onChange={handleFileUpload}
                 className="hidden"
                 ref={fileInputRef}
               />
-              <Button
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload className="mr-2 h-4 w-4" /> Subir Imagen
-              </Button>
-            </div>
-          </div>
+              <div className="mt-4">
+                <Button onClick={() => fileInputRef.current?.click()}>
+                  Subir Imagen
+                </Button>
+              </div>
+            </TabsContent>
+          </Tabs>
           {(capturedImage || uploadedImage) && (
             <div className="mt-4 p-4 bg-muted rounded-md">
               <h3 className="font-semibold mb-2">Detalles de la imagen:</h3>
               <p>
-                Dimensiones: {imageWidth} x {imageHeight} px
+                Dimensiones originales: {originalDimensions?.width} x{" "}
+                {originalDimensions?.height} px
+              </p>
+              <p>
+                Dimensiones actuales: {imageWidth} x {imageHeight} px
               </p>
               <p>Formato: {imageFormat.split("/")[1].toUpperCase()}</p>
               <p>Calidad: {Math.round(imageQuality * 100)}%</p>
@@ -332,6 +490,20 @@ export default function WebcamCapture() {
                   ? `${(imageSize / 1024).toFixed(2)} KB`
                   : "Calculando..."}
               </p>
+              {showTransformOption && (
+                <div className="mt-2">
+                  <p className="text-yellow-600">
+                    Las dimensiones de la imagen no coinciden con las
+                    configuradas.
+                  </p>
+                  <Button onClick={transformImage} className="mt-2">
+                    Transformar imagen
+                  </Button>
+                </div>
+              )}
+              <Button onClick={downloadImage} className="mt-2">
+                Descargar imagen
+              </Button>
             </div>
           )}
         </CardContent>
@@ -418,7 +590,7 @@ export default function WebcamCapture() {
                   value={[imageQuality]}
                   onValueChange={(value) => setImageQuality(value[0])}
                 />
-                <div className="text-sm  text-muted-foreground">
+                <div className="text-sm text-muted-foreground">
                   {Math.round(imageQuality * 100)}%
                 </div>
               </div>
